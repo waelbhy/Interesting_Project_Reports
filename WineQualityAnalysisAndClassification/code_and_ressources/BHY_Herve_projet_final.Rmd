@@ -1,0 +1,975 @@
+---
+title: ""
+output:
+  pdf_document:
+     number_sections: true
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\begin{center}
+\linespread{1.2}\huge {\bfseries Le vin optimal}\\[2cm]
+\linespread{1}
+\includegraphics[width=8cm]{img/vin.png}\\[4cm]
+{\Large Dorian Hervé et Wael Ben Hadj Yahia}\\[0.5cm]
+{\large \emph{Enseignant :} Louis Capitaine}\\[0.5cm]
+\large Projet réalisé dans le cadre de l'UE Statistique non paramétrique\\2019-2020 \\[0.3cm]
+\end{center}
+
+\newpage
+
+\tableofcontents
+
+\newpage
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+#setwd("C:/Users/waelb/Desktop/Wael/Master 1 CMI ISI 2019-2020/S8/SNP/final_proj")
+```
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+dat <- read_csv("winequality-red.csv")
+
+colnames(dat) <- c("fixed_acidity","volatile_acidity","citric_acid","residual_sugar","chlorides","free_sulfur_dioxide","total_sulfur_dioxide","density","pH","sulphates","alcohol","quality")
+```
+
+
+ 
+\section{Introduction}
+
+\bigskip
+\bigskip
+
+Ce projet a été réalisé dans le cadre de l'UE Statistique non paramétrique. Le jeu de données utilisé est une base de données de vins qui comprend des teneurs en certains constituants ainsi qu'une variable prenant des valeurs sur une échelle de 1 à 10. Celles-ci représentent la qualité de ce vin (1 étant mauvais et 10 excellent). Les données sont disponibles à l'adresse suivante : https://www.kaggle.com/uciml/red-wine-quality-cortez-et-al-2009/
+
+\bigskip
+\bigskip
+
+L'objectif de ce projet est de faire une analyse complète de cette base de données, notamment d'identifier les variables les plus influentes sur la qualité du vin, ainsi que de proposer des classifieurs qui permettent de catégoriser les vins.
+
+\bigskip
+\bigskip
+
+Ce rapport a été réalisé par Wael Ben Hadj Yahia et Dorian Hervé. Nous tenons à remercier Louis Capitaine pour nous avoir encadré lors de la réalisation de ce projet.
+
+\bigskip
+\bigskip
+\bigskip
+
+\newpage
+
+Avant de commencer notre étude, afin de se familiariser avec les données qui seront utilisées par la suite, nous proposons d'abord un histogramme destiné à montrer la répartition des vins dans les différentes catégories :
+
+\bigskip
+\bigskip
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE,fig.align='center', out.width='80%'}
+#nombre de vin par note
+data1 <- dat %>% 
+            group_by(quality) %>%
+            summarise(nb=n())
+
+ggplot(data = data1, aes(as.character(quality),nb) )+ ggtitle("Nombre de vins par catérogorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Nombre")+ geom_text(aes(label=nb),vjust=1.2,color='white',size=3.7)+theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+\bigskip
+\bigskip
+
+Cet histogramme nous permet d'observer une très forte hétérogénéité dans la idstribution des qualités des vins. En effet, nous avons 1319 des 1599 vins de qualité 5 ou 6, soit `r round(100*(1319/1599),1)`%, par opposition aux 28 vins de qualité 3 ou 8.
+
+\newpage
+
+\section{Mise en évidence des variables explicatives importantes}
+
+\bigskip
+
+Dans cette section, l'objectif est d'identifier les variables explicatives influentes sur la qualité du vin.
+
+\bigskip
+\bigskip
+
+\subsection{ACP}
+
+\medskip
+
+En ce qui concerne cette première partie, nous proposons une ACP afin de faire un premier travail de mise en évidence des variables clés.
+
+\bigskip
+
+Il s'agit d'abord de créer notre objet PCA en ACP normée, c'est à dire sur la matrice des corrélations (matrice Z obtenue en centrant et réduisant la matrice des données initiales X). La variable réponse "quality" est mise en variable supplémentaire dans toute la partie. 
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+library(FactoMineR)
+library(factoextra)
+
+X <- as.matrix(dat)
+
+pca.R <- PCA(X,quanti.sup =12, scale.unit = TRUE, graph=FALSE)
+
+```
+
+\bigskip
+
+Affichons d'abord la matrice des corrélations afin de faire une première analyse :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+#matrice de corrélation
+library(corrplot)
+
+
+corrplot(cor(X),method="number",order="hclust",number.cex=0.7)
+```
+
+\bigskip
+\bigskip
+
+Les variables "fixed acidity" & "density", "fixed acidity" & "citric acid", "total sulfur dioxide" & "total sulfur dioxide" sont positivement corrélées entre elles. Ceci veut dire qu'un vin qui est riche en l'un de ces constituants a tendance à être riche en les autres aussi, et inversement (une faible teneur en l'un de ces constituants a tendance à se traduire par une faible teneur des autres).
+De même, nous avons naturellement une corrélation négative entre "pH" & "fixed acidity".
+
+\newpage
+
+Intéressons nous maintenant aux valeurs propres afin de déterminer la dimension de projection que nous conserverons. L'éboulis des valeurs propres montre qu'après la cinquième valeur propre, la hauteur des barres décroît de manière homogène, (donc de la forme d'un "pli de coude"), donc nous devrions conserver 5 axes pour notre analyse.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='50%'}
+#valeurs propres eboulis
+
+pca.R.eig <- pca.R$eig
+
+fviz_eig(pca.R, choice = "eigenvalue",
+addlabels=TRUE)
+```
+
+\bigskip
+
+La règle de Kaiser est une autre méthode plus formelle (et moins approximative) ayant le même objectif que la méthode de l'éboulis. Elle consiste à garder les valeurs propres plus grandes que la quantité InertieProjetée/p. Or comme nous sommes dans le cas d'une ACP normée, l'inertie projetée (qui vaut la somme des variances des colonnes, et celles-ci étant centrées et réduites, chaque colonne est de variance 1) vaut p avec p étant le nombre de colonnes de X, la matrice des données), donc cela revient à conserver les valeurs propres supérieures à 1.
+Nous devrions donc conserver les 5 premiers axes de projection en toute rigueur. Par souci de redondance, nous en conserverons uniquement 4 pour la suite.
+
+\bigskip
+
+Intéressons-nous au cercle de corrélation par rapport aux axes 1 et 2 : 
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='65%'}
+#axes 1 et 2
+fviz_pca_var(pca.R, axes=c(1,2),col.var="contrib")
+
+```
+
+\bigskip
+\bigskip
+
+Seules les variables "fixed acidity", "citric acid", "total sulfur dioxide", "free sulfur dioxide" et "pH" sont assez bien projetées, nous ne prenons donc pas en compte les autres.
+
+Nous pouvons séparer nos variables en 3 groupes : "fixed acidity" et "citric acid" qui sont fortement corrélées à l'axe 1 et décorrélées à l'axe 2, "pH" qui est négativement corrélé à l'axe 1 et décorrélé à l'axe 2, et enfin "total sulfur dioxide" et "free sulfur dioxide" qui sont fortement corrélées à l'axe 2 et décorrélées à l'axe 1.
+
+En ce qui concerne la corrélation entre ces 3 groupes : nous pouvons remarquer qu'ils forment entre-eux quasiment un angle droit ce qui ne laisse présager aucune corrélation entre les variables qui les forment.
+
+Ces observations appuient nos constatations faites lors de l'analyse de la matrice de corrélation. 
+
+Le plan engendré par ces deux axes (1 et 2) expliquerait environ 45% (28+17) de la variabilité des données initiale. L'axe 1 semble être "l'axe de l'acidité" et l'axe 2 semble plutôt être expliqué par les sulfites.
+
+\bigskip
+
+Intéressons-nous au cercle de corrélation par rapport aux axes 3 et 4 : 
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#axes 3 et 4
+fviz_pca_var(pca.R, axes=c(3,4),col.var="contrib")
+```
+
+\bigskip
+
+Contrairement au dernier cercle de corrélation, nous avons ici que les "chlorides" et les "sulphates" sont les deux seules variables à être relativement bien projetées.
+
+Nous pouvons remarquer que les "chlorides" et les "sulphates" sont toutes deux positivement corrélées avec l'axe 4. En revanche nous pouvons voir que les "chlorides" sont quasiment décorrélés de l'axe 3 alors que les "sulphates" sont légèrement positivement corrélés avec l'axe 3. Remarquons que ces deux variables sont légèrement corrélées entre elles (angle assez petit entre leurs flèches de projection).
+
+Le plan engendré par les axes 3 et 4 expliquerait 25% (14+11) de la variabilité des données initiales. L'axe 3 semble être plutôt l'axe des "sulphates", et de même pour l'axe 4 à la différence que celui-ci serait également expliqué par les "chlorides".
+
+\newpage
+
+Regardons les vins les plus contribuants au plan (1,2) :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#contribution plan(1,2)
+fviz_contrib(pca.R, choice="ind", axes = c(1,2), sort.val = "desc" ,top=20 )
+
+```
+
+\bigskip
+
+Les vins 152, 1435 et 1436 sont les 3 vins les plus contribuants du plan (1,2), avec le vin 152 qui contribue à plus de 1% à lui tout seul (ce qui est considérable sur une base de données de 1600 entrées). 
+En vérifiant cette entrée, on constate que le vin 152 a une valeur de 1 à la colonne "citric acid" (c'est la plus grande valeur) alors que la moyenne de cette colonne est à 0,27 .
+
+\bigskip
+
+Intéressons nous maintenant à la projection des vins (points-individus) sur le premier plan factoriel engendré par les axes 1 et 2 :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='80%'}
+#axe 1 et 2
+fviz_pca_ind(pca.R, axes=c(1,2), col.ind="contrib")
+```
+
+\bigskip
+\bigskip
+
+On s'intéresse aux points qui se distinguent des autres et qui s'éloignent du centre du nuage, tels que par exemple les points 152 et 1436. 
+
+Le vin 152 a une assez grande valeur sur le premier axe et la plus grande valeur sur l'axe 2, on s'attend donc à ce que ce vin soit très riche en acides et faible en pH (c'est bien le cas avec une teneur en acide citrique à 1 et un pH à 2.74, qui est le plus faible de la base de données).
+
+Le vin 1436 a une assez grande valeur sur le deuxième axe et la plus grande valeur sur l'axe 1, ce qui est aussi corroboré en s'intéressant à ses teneurs en sulfites.
+
+\bigskip
+
+Intéressons-nous maintenant à la projection des plats (points-indidividus) sur le second plan factoriel engendré par les axes 3 et 4. 
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+#axe 3 et 4
+fviz_pca_ind(pca.R, axes=c(3,4), col.ind="contrib")
+```
+
+\bigskip
+\bigskip
+
+Une analyse similaire peut etre faite pour le plan (3,4) (notamment avec le vin 152 qui est le plus riche en "sulphates" et "chlorides"), mais ceci n'est pas très interessant dans notre cas ici.
+
+\bigskip
+\bigskip
+\bigskip
+
+En effet, cette analyse en ACP n'est pas concluante ici car la variable d'interet "quality" n'a pas été assez bien projetée sur les plans que nous avons considéré, et donc nous ne pouvons pas établir de corrélation entre la qualité d'un vin et d'autres composantes (remarquons tout de meme que l'alcool est la variable la plus corrélée à la qualité, mais cette corrélation n'est pas certaine à cause de la mauvaise projection). Nous proposons donc de continuer cette recherche en adoptant d'autres méthodes.
+
+\newpage
+
+\subsection{Régression}
+
+Dans cette section, le but est de construire le meilleur modèle de régression possible avec les données que l'on dispose, et d'en étudier les propriétés afin de mettre en évidence (ou non) des liens significatifs entre des variables explicatives et la variable réponse quality.
+
+\bigskip
+
+Nous proposons d'abord l'utilisation du critère de l'AIC afin de détérminer les variables que nous conserverons dans notre modèle optimal.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+fit_total <-lm(data=dat,dat$quality~.)
+sel_var <- step(fit_total,direction="backward",data=dat)
+```
+
+\bigskip
+\bigskip
+
+Le modèle optimal prendrait donc en compte les variables suivantes : "free sulfur dioxide", "pH", "total sulfur dioxide", "chlorides", "sulphates", "volatile acidity", et "alcohol". Il s'agirait des variables qui expliquent au mieux la variabilité de la qualité des vins.
+
+\newpage
+
+Etudions ce modèle :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+optimal_lm <- lm(data=dat,dat$quality~dat$free_sulfur_dioxide+dat$pH+dat$total_sulfur_dioxide+dat$chlorides+dat$sulphates+dat$alcohol)
+
+summary(optimal_lm)
+```
+
+\medskip
+
+Il permet d'expliquer environ 32% de la variabilité de la qualité des vins, ce qui n'est pas très satisfaisant.
+
+Nous avons un coefficient linéaire négatif entre la qualité d'un vin et : son pH, sa teneur en chlorides, et sa teneur en sulfites totales, ainsi qu'un coefficient linéaire positif entre la qualité du vin et sa teneur en sulfates, en dioxyde de sulfites et en alcool.
+
+\bigskip
+
+Néanmoins, vérifions que notre modèle possède de bonnes qualités : 
+
+\medskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='75%'}
+# plot(optimal_lm$residuals)
+plot(optimal_lm,which=c(2))
+```
+
+\bigskip
+
+Le QQ-plot suggère des erreurs normales puisque les quantiles observés et les quantiles théoriques (obtenus si la distribution est normale) forment une droite. L’hypothèse de normalité semble être vérifée.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+plot(optimal_lm$residuals)
+```
+
+\bigskip
+
+De plus, la sortie ci-dessus montre que les résidus ne prennent aucune forme particulière, ce qui corrobore le fait que les résidus suivent bien une distribution normale.
+
+\bigskip
+
+Regardons maintenant le graphe des distances de Cook :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='80%'}
+# plot(optimal_lm$residuals)
+plot(optimal_lm, which=c(4))
+```
+
+\bigskip
+\bigskip
+
+Les courbes de niveaux de leverage de distances de Cook ne sont pas égales, et 3 vins sont trop contributifs (on y retrouve notamment le vin 152). Dans de prochaines estimations, ils devraient etre supprimés de l'étude afin d'avoir une meilleur qualité du modèle.
+
+\newpage
+
+En conclusion, le modèle de régression linéaire n'est pas approprié ici (il n'explique que 32% de la variabilité de la qualité des vins). Ceci peut etre lié au fait que nous essayons d'estimer le lien entre des variables explicatives avec une variable réponse qualitative (la qualité des vins) par un lien linéaire. Or ici, il ne s'agit pas d'un problème de régression, mais plutot d'un problème de classification. Nous nous penchons donc par la suite à d'autres méthodes.
+
+\newpage
+
+\subsection{Statistiques descriptives}
+
+\bigskip
+
+Grâce aux sections précédentes, nous avons pu avoir une première intuition sur les variables influentes sur la qualité du vin. Observons donc la teneur moyenne de ces composantes influentes en distinguant les catégories de qualité du vin. Le but de cette section est d'avoir un apercu général, et n'apporte pas de conclusions formelles.
+
+Nous nous intéressons d'abord à la teneur en alcool par catégorie. 
+
+\medskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne alcool par catégorie
+data2 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_alcool=round(mean(alcohol),2))
+
+ggplot(data = data2, aes(as.character(quality),moy_alcool) )+ ggtitle("Moyenne d'alcool par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne d'alcool (en degré d'alcool)")+ geom_text(aes(label=moy_alcool),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\medskip
+
+Nous observons un lien quasi linéaire entre la teneur en alcool et la qualité d'un vin : plus la teneur en alcool est élevée plus la qualité du vin semble être élevée aussi avec une moyenne de 12.09% dans la catégorie optimale.
+
+\bigskip
+
+Intéressons nous maintenant à la teneur en dioxyde de soufre par catégorie de qualité.
+
+\bigskip
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne sulfure par catégorie
+data3 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_sulf=round(mean(total_sulfur_dioxide),2))
+
+ggplot(data = data3, aes(as.character(quality),moy_sulf) )+ ggtitle("Moyenne de dioxyde de soufre par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne de dioxyde de soufre (en mg/dm^3)")+ geom_text(aes(label=moy_sulf),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\bigskip
+
+A priori ce graphe n'est pas très concluant mis à part le fait que les vins moyens soient relativement riches en dioxyde de soufre.
+
+\bigskip
+\bigskip
+
+Observons le niveau moyen en acide citrique :
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne acide citrique par catégorie
+data5 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_citric=round(mean(citric_acid),2))
+
+ggplot(data = data5, aes(as.character(quality),moy_citric) )+ ggtitle("Moyenne d'acide citrique par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne d'acide citrique")+ geom_text(aes(label=moy_citric),vjust=1.6,color='white',size=4)
+```
+
+\bigskip
+
+Il semble assez clair que la teneur en acide citrique et la qualité du vin sont positivement corrélées.
+
+\bigskip
+\bigskip
+
+Observons maintenant l'acidité volatile moyenne par catégorie.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne acidité volatile par catégorie
+data6 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_acid=round(mean(volatile_acidity),2))
+
+ggplot(data = data6, aes(as.character(quality),moy_acid) )+ ggtitle("Moyenne d'acidité volatile par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne d'acidité volatile")+ geom_text(aes(label=moy_acid),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\bigskip
+
+La qualité du vin semble avoir une tendence à augmenter lorsque l'acidité volatile a tendance à baisser.
+
+\bigskip
+\bigskip
+
+Intéressons nous au niveau moyen de sulphates.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne sulfates par catégorie
+data7 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_sulph=round(mean(sulphates),2))
+
+ggplot(data = data7, aes(as.character(quality),moy_sulph) )+ ggtitle("Moyenne de sulfates par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne de sulfates")+ geom_text(aes(label=moy_sulph),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\bigskip
+
+Plus la qualité du vin est haute, plus la teneur moyenne en sulfates semble augmenter de manière sensible.
+
+\bigskip
+\bigskip
+
+Observons le niveau moyen du pH.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne pH par catégorie
+data8 <- dat %>% 
+            group_by(quality) %>%
+            summarise(ph=round(mean(pH),2))
+
+ggplot(data = data8, aes(as.character(quality),ph) )+ ggtitle("Moyenne de la valeur du pH par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne de la valeur du pH")+ geom_text(aes(label=ph),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\bigskip
+
+Il semble y avoir un équilibre entre acide citrique et acide volatile qui fait de sorte que le pH reste assez stable entre les catégories.
+
+\bigskip
+\bigskip
+
+Enfin, intéressons nous à la teneur moyenne en chlorides.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+#moyenne chlorides par catégorie
+data9 <- dat %>% 
+            group_by(quality) %>%
+            summarise(moy_c=round(mean(chlorides),2))
+
+ggplot(data = data9, aes(as.character(quality),moy_c) )+ ggtitle("Moyenne de chlorides par catégorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Moyenne de sulphates")+ geom_text(aes(label=moy_c),vjust=1.6,color='white',size=4)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\bigskip
+
+Nous observons une tendance décroissante entre la teneur en chlorides et la qualité du vin.
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+dat$quality[dat$quality<=4] <- 1
+dat$quality[dat$quality==5 | dat$quality==6] <- 2 
+dat$quality[dat$quality>=7] <- 3
+
+dat$quality<-as.factor(dat$quality)
+```
+
+\newpage
+
+\subsection{Tests d'hypothèse}
+
+Dans cette section, nous allons effectuer des tests d'hypothèse afin de corroborer/refuter rigoureusement les hypothèses que nous venons de faire au vu des résultats graphiques précédents.
+
+\bigskip
+
+Pour la suite, nous allons réaliser des tests d'hypothèse avant de nous intéresser à la construction de classifieurs de vins. 
+
+\bigskip
+
+Avant d'y procéder, nous choisissons de regrouper nos qualités de vins en 3 différentes catégories : 1 pour mauvais, 2 pour moyen et 3 pour bon. Dans la catégorie 1, nous regroupons les vins de qualité 3-4, les vins de qualité 5-6 pour moyen et 7-8 pour les bons vins.
+
+En effet, ce regroupement permet de diluer les disparités entre les proportions des groupes. Nous avions 10 vins sur 1600 pour la catégorie minoritaire contre 63 sur 1600 après relabélisation de ce champ. Par ailleurs nous estmimons qu'il est plus intuitif de parler d'un bon vin plutôt que d'un vin de qualité 7 ou 8. 
+
+\bigskip 
+
+Voici donc la nouvelle répartition des vins par catégorie. 
+
+\bigskip
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center", out.width='70%'}
+data1 <- dat %>% 
+            group_by(quality) %>%
+            summarise(nb=n())
+
+ggplot(data = data1, aes(as.character(quality),nb) )+ ggtitle("Nombre de vins par catérogorie de qualité") + theme_minimal()+geom_bar(fill="lightblue4",stat = "identity") + xlab("qualité") + ylab("Nombre")+ geom_text(aes(label=nb),vjust=1.2,color='white',size=3.7)+theme(plot.title = element_text(hjust = 0.5))
+```
+
+\newpage
+
+Effectuons à présent un test afin de voir s'il n'y a pas de différence entre la teneur en alcool selon le fait qu'un vin soit de catégorie 1 ou 3.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+# test alcool en fonction des catégories
+
+dat1 <- dat %>% filter(quality==1)
+dat3 <- dat %>% filter(quality==3)
+
+
+sample_c1 <- sample(dat1$alcohol,size = 50)
+sample_c3 <- sample(dat3$alcohol,size = 50)
+
+
+
+
+test2<- t.test(sample_c1,sample_c3,alternative="two.sided",var.equal = TRUE)
+test2
+
+```
+
+\bigskip
+
+La p-valeur associée à ce test est de `r test2$p.value`, ce qui veut dire que notre réalisation de statistique de test a `r 100*test2$p.value`% de chances d'avoir une valeur au moins aussi extreme que celle qui est observée, et ce sous l'hypothèse selon laquelle il n'y aurait pas de différence significative dans la teneur en alcool selon la catégorie. Au risque 5%, nous rejetons donc cette hypothèse, et nous concluons sur le fait que la teneur en alcool influe sur la qualité du vin.
+
+\bigskip
+\bigskip
+
+Réalisons maintenant un test pour la variable "sulphates". 
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+# test sulfates en fonction des catégories
+
+sample_c1 <- sample(dat1$sulphates,size = 50)
+sample_c3 <- sample(dat3$sulphates,size = 50)
+
+
+
+
+test2<- t.test(sample_c1,sample_c3,alternative="two.sided",var.equal = TRUE)
+test2
+
+
+```
+
+\bigskip
+
+Au risque 5%, nous rejetons donc l'hypothèse nulle, et nous concluons sur le fait que la teneur en sulfates influe sur la qualité du vin.
+
+\bigskip
+\bigskip
+
+A présent, réalisons un test sur la variable "volatile acidity" :
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+# test volatile acidity en fonction des catégories
+
+sample_c1 <- sample(dat1$volatile_acidity,size = 50)
+sample_c3 <- sample(dat3$volatile_acidity,size = 50)
+
+
+
+
+test2<- t.test(sample_c1,sample_c3,alternative="two.sided",var.equal = TRUE)
+test2
+
+
+```
+
+\bigskip
+
+Encore une fois, nous rejetons l'hypothèse selon laquelle il n'y a pas de différence en teneur d'acide volatile suivant la catégorie des vins. 
+
+\bigskip
+\bigskip
+
+Enfin, intéressons nous à la variable dioxyde de soufre. 
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+# test dioxide de soufre en fonction des catégories
+
+sample_c1 <- sample(dat1$total_sulfur_dioxide,size = 50)
+sample_c3 <- sample(dat3$total_sulfur_dioxide,size = 50)
+
+
+
+
+test2<- t.test(sample_c1,sample_c3,alternative="two.sided",var.equal = TRUE)
+test2
+
+
+```
+
+\bigskip
+
+Cette fois-ci, avec une p-valeur de `r test2$p.value` nous ne rejettons pas l'hypothèse selon laquelle la teneur en dioxyde de soufre n'est pas significativement différente suivant les catégories de vins. 
+
+\bigskip
+\bigskip
+\bigskip
+
+En conclusion de cette partie, les méthodes considérées précédemment nous permettent de définir les variables alcool, sulfates et acidité volatile comme étant les variables importantes. Ainsi la qualité d'un vin pourrait être expliqué à travers ces variables. Il semblerait qu'un bon vin est un vin riche en alcool et en sulfates, et faible en acidité volatile.
+
+\newpage
+
+\section{Classification}
+
+Dans cette section, le but est de proposer des classifieurs de vin et d'en étudier les performances afin de trouver la méthode la plus adaptée à notre problème.
+
+\bigskip
+
+\subsection{Arbres CART}
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+library(mvtnorm)
+library(rpart)
+library(rpart.plot)
+library(caret)
+
+
+```
+
+Avant de tracer notre arbre de décision, nous voulons trouver le paramètre $cp$ (complexity paramter) optimal qui permet de réduire les chances de sur-apprentissage et d'obtenir un arbre suffisamment grand. Une trop petite valeur de $cp$ mène à du sur-apprentissage tandis qu'une valeur trop grande de $cp$ mène à un arbre trop petit. Une valeur optimale de $cp$ peut être estimée en testant plusieurs valeurs de $cp$ différentes et en utilisant des approches de validation croisée afin de déterminer la précision de prédiction du modèle correspondant. Le meilleur $cp$ est ensuite défini comme étant celui qui maximise la précision de validation croisée.
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE,fig.align='center',out.width='80%'}
+set.seed(123)
+model2 <- train(
+  quality ~., data = dat, method = "rpart",
+  trControl = trainControl("cv", number = 1598), # number -> folds
+  tuneLength = 100
+  )
+# Plot model accuracy vs different values of
+# cp (complexity parameter)
+plot(model2)
+
+
+# Print the best tuning parameter cp that
+# maximizes the model accuracy
+#model2$bestTune
+cpp<-model2$bestTune$cp
+
+modele1 <- rpart(quality ~ ., data = as.data.frame(dat),cp=cpp)
+
+#avec 1598 folds on a cp=0.019
+
+
+```
+
+\bigskip
+
+Nous obtenons alors un $cp =$ `r round(cpp,3)` et nous utilisons ce paramètre pour la construction de l'arbre ci-dessous.
+
+\bigskip
+
+```{r echo = FALSE, warning=FALSE, message=FALSE,fig.align='center',out.width='80%'}
+prp(modele1)
+```
+
+\bigskip
+
+Il semblerait donc qu'un vin fort en alcool et en sulfates et faible en dioxide de soufre est un vin de bonne qualité. Nous retrouvons donc une découpe cohérente avec la partie précédente. Remarquons tout de même l'absence de la classe 1 de vin, cela pourrait s'expliquer par son effectif trop faible.
+
+
+```{r echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, out.width='80%'}
+#pred leave-one-out
+
+pred.loo <- rep(NA, length(dat$quality))
+for (i in 1:length(dat$quality)) {
+    X.app <- as.data.frame(dat[-i, ])
+    X.app <- X.app[,-12]
+    X.test <- as.data.frame(dat[i, , drop = FALSE])
+    X.test <- X.test[,-12]
+    Y.app <- dat$quality[-i]
+    Y.test <- dat$quality[i]
+    
+    modele.loo <- rpart(as.factor(Y.app) ~ ., data = X.app, cp=cpp)
+    pred.loo[i] <- predict(modele.loo, X.test, type = "class")
+}
+err.loo <- sum(dat$quality != pred.loo)/length(dat$quality)
+```
+
+Nous choisissons d'estimer l'erreur de classification empirique par la méthode du leave-one-out. Nous obtenons une erreur de `r round(err.loo,3)*100`%. Cependant notre arbre a classé aucun vin en qualité 1 mais cela impacte très peu le taux d'erreur puisque l'effectif de vins de classe 1 est trop faible. Cette méthode donne des résultats peu satisfaisants dans notre cas.
+
+
+
+\newpage
+
+\subsection{Forêts aléatoires}
+
+\bigskip
+
+Dans cette section, nous allons nous intéresser au classifieur par forêt aléatoire. 
+
+\medskip
+
+Construisons une première forêt aléatoire afin d'expliquer la variable qualité en fonction des autres variables explicatives.
+
+\bigskip
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(randomForest)
+
+n <- nrow(dat)
+p <- ncol(dat)
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+rf <- randomForest(formula = quality~. , data = dat, importance = TRUE)
+rf
+```
+
+Nous remarquons une nouvelle fois grâce à la matrice de confusion que le modèle classe très mal les vins de qualité 1. Certes nous avons une précision d'environ 87%, ce qui est plus satisfaisant qu'avec la classification par arbre CART. De plus, le modèle est capable de classifier correctement plus de la moitié des bons vins. 
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+oob_mtry25 <- replicate(10, randomForest(formula = quality~. , data = dat)$err.rate[500])
+err.moy <- round(mean(oob_mtry25),2)
+```
+
+\bigskip
+
+Pour stabiliser l'erreur, nous avons réalisé une moyenne de l'erreur OOB sur 10 forêts. Nous obtenons alors `r err.moy*100`% d'erreurs. 
+
+\bigskip
+
+Observons les variables explicatives les plus importantes dans le prédiction de la qualité du vin.
+
+\bigskip
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center', out.width='80%'}
+imp <- rf$importance[, 5]
+imp.sort <- sort(imp, decreasing = TRUE, index.return = TRUE)
+barplot(imp.sort$x[1:3])
+#imp.sort
+```
+
+\bigskip
+
+Il semblerait que les variables les plus importantes sont l'alcool, l'acidité volatile et les sulfates. Cela confirme les résultats précédents.
+
+
+```{r,evaluate=FALSE,echo=FALSE, message=FALSE,warning=FALSE,}
+
+# Bonus pour les plus curieux
+
+# library(tree.interpreter)
+# rftest <- randomForest(formula = quality~. , data = dat, keep.inbag = TRUE)
+# tidy.rf <- tidyRF(rftest, dat[,-12],dat[,12])
+# #str(tidy.rf)
+# 
+# #Contribution of each feature to the prediction.
+# featcontr <- featureContrib(tidy.rf, dat[, -12])
+# 
+# #Calculate the MDI-oob feature importance measure
+# #It has long been known that MDI incorrectly assigns high importance to noisy features, leading to systematic bias in feature selection. To address this issue, Li et al. proposed a debiased MDI feature importance measure using out-of-bag samples, called MDI-oob, which has achieved state-of-the-art performance in feature selection for both simulated and real data.
+# mdioob <- MDIoob(tidy.rf, dat[,-12],dat[,12])
+# 
+# #Calculate the MDI feature importance measure
+# #MDI stands for Mean Decrease in Impurity. It is a widely adopted measure of feature importancein random forests.
+# mdi <- MDI(tidy.rf, dat[,-12],dat[,12])
+# 
+# #For a forest, the trainset bias is simply the average trainset bias across all trees. This is because the prediction of a forest is the average of the predictions of its trees.
+# trainsetbias <- trainsetBias(tidy.rf)
+```
+
+\newpage
+
+\subsection{Méthodes classiques de machine learning}
+
+\bigskip
+
+Dans le cadre de notre cours intitulé Analyse Classification et Indexation des Données du semestre précédent, nous avons étudié quelques algorithmes de machine learning classiques. Nous essaierons par la suite d'en implémenter quelques-uns afin d'en estimer leur performance sur notre jeu de données. Le fonctionnement des algorithmes ne sera pas détaillé, mais les notes de cours destinées à l'explication de ces algorithmes sont dans la bibliographie.
+
+Le perceptron cherche à séparer linéairement un problème en faisant une descente de gradient sur une fonction J avec $J(w) = \sum\limits_{y\in Y_{M}(w)} -w^{T}y$ avec $Y_{M}$ l'ensemble des points mal classés.
+Voici la proportion de vins bien classés en utilisant la méthode du perceptron :  \includegraphics[width=3cm]{img/perceptron_acc.png}
+
+Le SVM est une technique d'apprentissage machine qui cherche à séparer les différentes classes par des hyperplans dans un espace multidimensionnel. Nous obtenons la précision suivante : \includegraphics[width=3cm]{img/svm.png}
+
+La méthode des k plus proches voisins consiste à classifier un point comme étant de la catégorie majoritaire de ses k plus proches voisins. Nous obtenons la précision suivante :  \includegraphics[width=3cm]{img/knn.png}
+
+Nous avons aussi extrait aléatoirement des vins du jeu de données de chaque catégorie afin d'en faire la prédiction et de la comparer à la classe originale :
+
+\bigskip
+
+\begin{center}
+\includegraphics[width=6.5cm]{img/predict_2.png}
+\end{center}
+
+\bigskip
+
+Nous obtenons cette même sortie pour ces 3 algorithmes : tous les vins choisis sont classifiés comme étant de qualité moyenne.
+
+\bigskip
+\bigskip
+
+Avec une précision allant de 77% à 84%, l'ensemble de ces méthodes ne fournit pas un résultat assez satisfaisant. La nature de ces résultats peut s'expliquer par le fait que ces algorithmes sont peu efficaces dans ce cas, notamment à cause de la trop grande disparité dans la répartition des classes.
+
+\newpage
+
+\subsection{Réseau de neurones}
+
+\bigskip
+
+Nous proposons de construire un classifieur basé sur un réseau de neurones profond. Puisque nous n'avons pas abordé ces notions dans un de nos cours, nous nous permettons d'insérer le texte explicatif associé qui fait partie de notre rapport de TER (réalisé par Wael Ben Hadj Yahia, Marie-Mathilde Garcia et Dorian Hervé).
+
+Les réseaux de neurones artificiels sont inspirés du cerveau humain : dans notre cerveau nous avons des neurones, qui sont reliés entre eux et qui se transmettent des informations grâce à des impulsions électriques. En fonction de l’intensité de la pulsion électrique les neurones suivants s’activeront (ou pas si la pulsion électrique est trop faible). C’est selon ce même principe que les mathématiciens ont conçu les réseaux de neurones artificiels.
+
+Warren McCulloch un neurologue américain et Walter Harry Pitts un mathématicien américain, sont les premiers à introduire les neurones artificiels en 1943. Un neurone artificiel est donc un modèle mathématique représentant un neurone biologique. En 1958, Frank Rosenblatt a introduit le perceptron, c'est le premier classifieur binaire utilisant l'apprentissage supervisé et les neurones artificiels. La figure ci-dessous nous donne un représentation de ce perceptron.
+
+\bigskip
+
+\begin{center}
+\includegraphics[width=14cm]{img/perceptron.png}
+\end{center}
+
+\bigskip
+
+Il comporte plusieurs entrées, avec des poids sur chacune des arêtes. Le neurone effectue une sommation pondérée des entrées via les poids et déclenche un signal de sortie en fonction d’un certain seuil (le biais), comme nous pouvons le voir sur le schéma ci-dessus. Par exemple, si à la fin du perceptron $y=1$, nous pouvons considérer que le signal est déclenché, alors que si $y=-1$ le signal n'est pas déclenché. L'entraînement du modèle consiste alors à ajuster les poids et le biais pour optimiser les résultats en sortie. Le problème de l'algorithme du perceptron est qu'il ne converge que pour des problèmes linéairement séparables.
+
+Pour résoudre ce problème, les réseaux de neurones artificiels sont introduits. Ces réseaux sont aussi désignés par perceptron multicouche car ce type de réseau est le plus répandu.
+
+Un réseau de neurones artificiels est un ensemble de neurones artificiels connectés. Ils vont être répartis en trois familles : les entrées (inputs), les sorties (outputs), et les "couches cachées" (hidden layers). La figure ci-dessous est un exemple d'un tel réseau.
+
+\begin{center}
+\includegraphics[width=14cm]{img/ex_multilayer.png}
+\end{center}
+
+\bigskip
+
+Nous noterons, $x$ le vecteur des entrées, $h_{1}$,...,$h_{n}$ les vecteurs d'une couche cachée (car dans cet exemple nous n'en avons qu'une), $y$ le vecteur des sorties et $W$ la matrice des poids de chacune des connexions entre les neurones. Par rapport aux calculs de la figure ci-dessus nous avons aussi :
+
+- $w_{ij}^{k}$ qui représente le poids sur l'arête entre le noeud $j$ et le noeud $i$ à la $k$-ième couche cachée
+
+- $g_{k}$ la fonction d'activation appliquée aux $x$ d'entrée.
+
+
+\noindent Dans l'exemple de la figure, nous pouvons voir les calculs à chaque étape de ce réseau de neurones, le but est d'optimiser les valeurs des matrices $W_{1}$, $W_{2}$ et des vecteurs $b_{1}$ et $b_{2}$.
+
+\noindent Dans cet exemple, nous avions une unique couche cachée mais dans ce que nous appelons les réseaux de neurones profonds, il peut y en avoir beaucoup plus.
+
+\noindent L'une des applications des réseaux de neurones profonds est la classification d'images. Dans ce cas, en entrée sont donnés les pixels d'une image, et en sortie nous allons avoir 1 si l'image est un chien ou 0 si ce n'en est pas un (si par exemple nous cherchons à déterminer si l'image donnée en entrée est un chien).
+
+\noindent Il existe plusieurs fonctions d'activation, ce sont ces fonctions qui conditionnent les sorties de notre réseau. Nous verrons plus tard laquelle nous déciderons d'utiliser pour notre cas.
+
+\bigskip
+\bigskip
+
+Dans notre cas de classification des vins, nous avons construit un réseau de neurones assez simple en se basant sur un modèle et nous l'avons adapté afin qu'il puisse construire un classifieur avec nos données et nos nouvelles classes de vin.
+
+\newpage
+
+Voici un schéma représentant la structure du réseau de neurones que nous avons construit :
+
+\bigskip
+
+\begin{center}
+\includegraphics[width=14cm]{img/network.png}
+\end{center}
+
+\bigskip
+
+Ce réseau est donc constitué de 6 couches. C'est un réseau "fully-connected" (autrement dit tous les neurones d'une couche sont reliés à tous les neurones des couches adjacentes). Notre fonction d'activation est ReLu définie de cette manière : 
+$$
+\  f(x) = \left\{
+    \begin{array}{ll}
+        \ x \;\;\; \text{ si } \;\;\; x > 0 \\
+        \ 0 \;\;\; \text{ sinon } \\
+    \end{array}
+\right.
+$$ 
+sauf pour la dernière couche avec un softmax qui sort un vecteur $\sigma(z)$ composé de K nombres réels strictement positifs tels que $\sigma(z)_{j} = \frac{e^{z_{j}}}{\sum\limits_{k=1}^K e^z_{k}}$ pour tout $j \in \{1,...,K\}$.
+
+Nous obtenons des résultats qui s'approchent des 92% de précision en exécutant sur 2500 epochs. 
+
+\bigskip
+
+\begin{center}
+\includegraphics[width=14cm]{img/acc.png}
+\end{center}
+
+\bigskip
+
+Notons que si nous utilisions le critère de la classe majoritaire, nous obtiendrons 1319/1599 = 0.825 donc environ 82% de précision. Notre réseau de neurones classe donc de manière plus précise les classes non majoritaires. 
+
+\newpage
+
+Voici la prédiction des mêmes vins considérés que précédemment.
+
+\bigskip
+
+\begin{center}
+\includegraphics[width=6.5cm]{img/predict.png}
+\end{center}
+
+\bigskip
+\bigskip
+
+Nous constatons que le modèle est capable de classer assez efficacement les vins de qualité extrême alors que nous pensions que le classe 1 allait être moins bien prédite du au faible effectif, de la même manière que les classifieurs précédents. Le modèle semble moins bien prédire la classe d'un vin légèrement au-dessus ou au-dessous de la classe moyenne et semble ne pas se tromper pour les vins de cette classe.
+
+\bigskip
+\bigskip
+\bigskip
+
+En conclusion, le meilleur classifieur pour ce jeu de données est le réseau de neurones qui a une précision de 92%. Étant la grande disparité dans la répartition des classes, les autres algorithmes de machine learning semblaient tendre vers un classifieur de classe majoritaire, voire moins efficaces car ce dernier aurait une précision de 83% environ. Par exemple, le perceptron était à 77% d'efficacité (du au fait que le problème ne soit pas linéairement séparable ici).
+
+\newpage
+
+\section{Conclusion}
+
+\bigskip
+\bigskip
+
+En conclusion, l'analyse complète de la base de données indiquerait qu'un bon vin serait un vin avec une forte teneur en alcool et en sulfates, ainsi qu'une faible teneur en acidité volatile et en dioxyde de soufre. En ce qui concerne le classifieur le plus adapté à ce jeu de données, nous trouvons que le réseau de neurones est le classifieur optimal avec une précision de 92%. En axe de recherche complémentaire, nous proposons d'enrichir la base de données avec des vins de toutes qualités afin d'obtenir des résultats plus affinés.
+
+\newpage
+
+\section{Bibliographie}
+
+\bigskip
+
+- CART: http://www.sthda.com/english/articles/35-statistical-machine-learning-essentials/141-cart-model-decision-tree-essentials/#pruning-the-tree
+
+- Machine learning : https://www.kaggle.com/vanshjatana/applied-machine-learning
+
+- Deep Learning : https://github.com/jg-fisher/wineNeuralNetwork
+
+- Cours ACID : https://www.labri.fr/perso/domenger/Cours/ACID-Web.pdf
+
+- Cours Deep Learning : https://www.charles-deledalle.fr/pages/files/ucsd_kpuw/3_deep.pdf
+
+- Modèle de régression et tests d'hyporthèse : Pierre-André Cornillon et Eric Matzner-Løber, Régression avec R, Springer 2010
+
+- Le logiciel R - 2e édition - Pierre Lafaye de Micheaux, Rémy Drouilhet, et Benoit Liquet
+
+
+
